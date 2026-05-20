@@ -137,3 +137,74 @@ def log_failed_url(url: str) -> None:
             f.write(url + "\n")
     except Exception as e:
         logger.error(f"Could not write to {FAILED_FILE}: {e}")
+
+
+def fetch_letter_index(letter: str) -> Optional[str]:
+    """
+    Fetch the HTML of a letter index page from the Boericke Materia Medica.
+
+    Constructs the URL from the letter and delegates to fetch_page.
+    e.g. letter="A" → http://homeoint.org/books/boericmm/a.htm
+
+    Args:
+        letter: Single uppercase letter A–Z.
+
+    Returns:
+        Raw HTML string of the index page, or None if the fetch failed.
+    """
+    url = BASE_URL + letter.lower() + ".htm"
+    logger.info(f"Fetching index for letter {letter}...")
+    return fetch_page(url)
+
+
+def parse_remedy_links(html: str, letter: str) -> List[Tuple[str, str]]:
+    """
+    Parse all remedy abbreviation+URL pairs from a letter index page.
+
+    Extracts only remedy links from the <blockquote> section, skipping
+    all navigation links (links to other letters or the main index).
+
+    Args:
+        html:   Raw HTML of the letter index page.
+        letter: Uppercase letter this page belongs to (used for logging).
+
+    Returns:
+        List of (abbreviation, absolute_url) tuples, e.g.:
+        [
+            ("ABIES-C", "http://homeoint.org/books/boericmm/a/abies-c.htm"),
+            ("ABIES-N", "http://homeoint.org/books/boericmm/a/abies-n.htm"),
+            ...
+        ]
+        Returns an empty list if parsing fails or no links are found.
+    """
+    try:
+        soup = BeautifulSoup(html, "lxml")
+        blockquote = soup.find("blockquote")
+        if not blockquote:
+            logger.warning(f"No <blockquote> found on index page for letter {letter}")
+            return []
+
+        results = []
+        for tag in blockquote.find_all("a"):
+            if tag.find_parent("b"):
+                continue
+            href = tag.get("href", "").strip()
+            if not href:
+                continue
+            text = tag.get_text(strip=True)
+            if not text:
+                continue
+            if "index" in href:
+                continue
+            if re.search(r"/[a-z]\.htm$", href):
+                continue
+
+            abbreviation = text.upper()
+            absolute_url = href if href.startswith("http") else urljoin(BASE_URL, href)
+            results.append((abbreviation, absolute_url))
+
+        logger.info(f"Found {len(results)} remedies for letter {letter}")
+        return results
+    except Exception as e:
+        logger.error(f"Failed to parse index for letter {letter}: {e}")
+        return []
