@@ -251,23 +251,55 @@ def parse_remedy_page(
         from bs4 import NavigableString as NS
 
         soup = BeautifulSoup(html, "lxml")
-        body = soup.find("body")
-        if not body:
-            logger.warning(f"No <body> found for {url}")
-            return None
 
         HEADING_RE = re.compile(r'^([A-Z][a-zA-Z\s\-\/]+)\.--\s*(.*)', re.DOTALL)
-        # Matches the site header/footer paragraphs that should be skipped
         SKIP_RE = re.compile(r'BOERICKE|M\xe9di-T|Copyright|Presented by', re.IGNORECASE)
 
-        full_name: Optional[str] = None
-        common_name: Optional[str] = None
+        # --- Find the remedy name <p> anywhere in the document ---
+        # Pages have two layouts after lxml parsing:
+        #   (A) content flattened into <body> children directly
+        #   (B) content inside a <blockquote> within nested <dir> tags
+        # In both cases the name lives in a <p><b><font>UPPERCASE</font></b></p>.
+        name_p = None
+        for p in soup.find_all('p'):
+            b_tag = p.find('b')
+            if not b_tag:
+                continue
+            font_tag = b_tag.find('font')
+            if not font_tag:
+                continue
+            text = font_tag.get_text(strip=True)
+            if SKIP_RE.search(text):
+                continue
+            alpha = [c for c in text if c.isalpha()]
+            if alpha and sum(1 for c in alpha if c.isupper()) / len(alpha) >= 0.6:
+                name_p = p
+                break
+
+        if name_p is None:
+            logger.warning(f"Could not find full_name for {url}")
+            return None
+
+        # --- Extract full_name and common_name ---
+        b_tag = name_p.find('b')
+        font_tag = b_tag.find('font')
+        full_name = clean_text(font_tag.get_text())
+        cn_parts: List[str] = []
+        for sib in font_tag.next_siblings:
+            if isinstance(sib, NS):
+                s = sib.strip()
+                if s:
+                    cn_parts.append(s)
+        common_name = clean_text(' '.join(cn_parts)) or None
+
+        # --- Walk the container (name_p's parent) for sections ---
+        container = name_p.parent
         general_parts: List[str] = []
         sections: Dict[str, str] = {}
         current_section: Optional[str] = None
         current_parts: List[str] = []
         in_general = True
-        found_name = False
+        past_name = False  # skip elements before and including name_p
 
         def add_text(text: str) -> None:
             if not text:
@@ -277,10 +309,13 @@ def parse_remedy_page(
             elif current_section is not None:
                 current_parts.append(text)
 
-        for child in body.children:
+        for child in container.children:
+            if not past_name:
+                if child is name_p:
+                    past_name = True
+                continue
+
             if isinstance(child, NS):
-                if not found_name:
-                    continue
                 add_text(child.strip())
 
             elif hasattr(child, 'name'):
@@ -292,28 +327,7 @@ def parse_remedy_page(
                     if SKIP_RE.search(tag_text):
                         continue
 
-                    if not found_name:
-                        # First meaningful <p> after header is the remedy name
-                        b_tag = child.find('b')
-                        if b_tag:
-                            font_tag = b_tag.find('font')
-                            if font_tag:
-                                full_name = clean_text(font_tag.get_text())
-                                cn_parts = []
-                                for sib in font_tag.next_siblings:
-                                    if isinstance(sib, NS):
-                                        s = sib.strip()
-                                        if s:
-                                            cn_parts.append(s)
-                                common_name = clean_text(' '.join(cn_parts)) or None
-                            else:
-                                full_name = clean_text(b_tag.get_text())
-                            found_name = True
-                        continue
-
-                    # After finding name: check if <p> is a section heading.
-                    # Headings appear either as plain text ("Mind.--Great fear...")
-                    # or wrapped in a <b> tag ("<b>Section.--</b>text...").
+                    # Check if <p> is a section heading (plain-text or <b>-wrapped)
                     heading_match = HEADING_RE.match(tag_text)
                     b_tag = child.find('b')
                     b_heading_match = HEADING_RE.match(b_tag.get_text(strip=True)) if b_tag else None
@@ -325,7 +339,6 @@ def parse_remedy_page(
                         in_general = False
                         current_section = m.group(1).strip()
                         if b_heading_match and b_tag:
-                            # Collect text after the <b> inside this <p>
                             rest: List[str] = []
                             for sib in b_tag.next_siblings:
                                 s = sib.strip() if isinstance(sib, NS) else (
@@ -334,17 +347,13 @@ def parse_remedy_page(
                                     rest.append(s)
                             current_parts = [clean_text(' '.join(rest))] if rest else []
                         else:
-                            # Plain-text heading: remainder is everything after "Heading.-- "
                             remainder = m.group(2).strip()
                             current_parts = [remainder] if remainder else []
                         continue
 
-                    # Plain <p> — treat as content
                     add_text(tag_text)
 
                 elif child.name == 'font':
-                    if not found_name:
-                        continue
                     m = HEADING_RE.match(tag_text)
                     if m:
                         if not in_general and current_section is not None:
@@ -357,16 +366,11 @@ def parse_remedy_page(
                         add_text(tag_text)
 
                 else:
-                    if found_name:
-                        add_text(tag_text)
+                    add_text(tag_text)
 
         # Flush the last section
         if current_section is not None:
             sections[current_section] = clean_text(' '.join(current_parts))
-
-        if not full_name:
-            logger.warning(f"Could not find full_name for {url}")
-            return None
 
         general = clean_text(' '.join(general_parts))
 
