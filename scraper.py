@@ -185,6 +185,7 @@ def parse_remedy_links(html: str, letter: str) -> List[Tuple[str, str]]:
             return []
 
         results = []
+        seen_urls: Set[str] = set()
         for tag in blockquote.find_all("a"):
             if tag.find_parent("b"):
                 continue
@@ -201,6 +202,9 @@ def parse_remedy_links(html: str, letter: str) -> List[Tuple[str, str]]:
 
             abbreviation = text.upper()
             absolute_url = href if href.startswith("http") else urljoin(BASE_URL, href)
+            if absolute_url in seen_urls:
+                continue
+            seen_urls.add(absolute_url)
             results.append((abbreviation, absolute_url))
 
         logger.info(f"Found {len(results)} remedies for letter {letter}")
