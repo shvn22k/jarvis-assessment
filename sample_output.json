@@ -1,1 +1,99 @@
-[]
+[
+  {
+    "abbreviation": "ABIES-C",
+    "full_name": "ABIES CANADENSIS-PINUS CANADENSIS",
+    "common_name": "Hemlock Spruce",
+    "source_url": "http://homeoint.org/books/boericmm/a/abies-c.htm",
+    "letter": "A",
+    "general": "Mucous membranes are affected by Abies can and gastric symptoms are most marked, and a catarrhal condition of the stomach is produced. There are peculiarcravingsand chilly sensations that are very characteristic, especially for women with uterine displacement, probably due to defective nutrition with debility. Respiration and heart action labored. Wants to lie down all the time; skin cold and clammy, hands cold; very faint. Right lung and liver feel small and hard. Gleet.",
+    "sections": {
+      "Head": "Feels light-headed, tipsy. Irritable.",
+      "Stomach": "Canine hunger with torpid liver. Gnawing, hungry, faint feeling at the epigastrium. Great appetite, craving for meat, pickles, radishes, turnips, artichokes, coarse food. Tendency to eat far beyond capacity for digestion . Burning and distention of stomach and abdomen with palpitation . Flatulence disturbs the heart's action. Pain in right shoulder-blade, and constipation, with burning in rectum.",
+      "Female": "Uterine displacements. Sore feeling at fundus of uterus, relieved by pressure. Prostration; wants to lie down all the time. Thinks womb is soft and feeble.",
+      "Fever": "Cold shivering, as if blood were ice-water ( Acon ). Chills run down back. Cold water feeling between shoulders ( Ammon mur ). Skin clammy and sticky. Night-sweat ( China ).",
+      "Dose": "First to third potency. Home"
+    },
+    "relationships": null,
+    "potencies": [
+      "1c",
+      "3c"
+    ],
+    "keywords": [
+      "cold",
+      "down",
+      "feeling",
+      "stomach",
+      "uterine",
+      "heart",
+      "action",
+      "wants",
+      "time",
+      "skin"
+    ]
+  },
+  {
+    "abbreviation": "ABIES-N",
+    "full_name": "ABIES NIGRA",
+    "common_name": "Black Spruce",
+    "source_url": "http://homeoint.org/books/boericmm/a/abies-n.htm",
+    "letter": "A",
+    "general": "A powerful and long-acting remedy, in various forms of disease, whenever the characteristic stomach symptoms are present. Most of the symptoms are associated with the gastric disturbances.In dyspeptic troubles of the aged, with functional heart symptoms; also after tea or tobacco.Constipation. Pain in external meatus.",
+    "sections": {
+      "Head": "Hot, with flushed cheeks. Low-spirited. Dull during the day, wakeful at night. Unable to think.",
+      "Stomach": "Pain in stomach always comes on after eating . Sensation of a lump that hurts, as if a hard-boiled egg had lodged in cardiac end of stomach ; continual distressing constriction just above the pit of the stomach, as if everything were knotted up. Total loss of appetite in morning, but great craving for food at noon and night. Offensive breath. Eructations.",
+      "Chest": "Painful sensation, as if something were lodged in the chest and had to be coughed up; lungs feel compressed. Cannot be fully expanded. Worse coughing; waterbrash succeeds cough. Choking sensation in throat. Dyspna; worse lying down; sharp, cutting pain in heart; heart's action heavy and slow; tachycardia , bradycardia.",
+      "Back": "Pain in small of back. Rheumatic pains and aching in bones.",
+      "Sleep": "Wakeful and restless at night, with hunger. Bad dreams.",
+      "Fever": "Alternate heat and cold; chronic intermittent fever, with pain in stomach.",
+      "Modalities": "Worse after eating.",
+      "Relationship": "Compare: (Lump in stomach-- China, Bryon, Pulsat ); also other Conifers-- Thuja, Sabina, Cupressus (painful indigestion) also Nux vom, Kali carb .",
+      "Dose": "First to thirtieth potency. Home"
+    },
+    "relationships": "Compare: (Lump in stomach-- China, Bryon, Pulsat ); also other Conifers-- Thuja, Sabina, Cupressus (painful indigestion) also Nux vom, Kali carb .",
+    "potencies": [
+      "1c",
+      "30c"
+    ],
+    "keywords": [
+      "stomach",
+      "symptoms",
+      "heart",
+      "night",
+      "sensation",
+      "wakeful",
+      "eating",
+      "lump",
+      "lodged",
+      "were"
+    ]
+  },
+  {
+    "abbreviation": "ABR",
+    "full_name": "ABRUS PRECATORIUS -- JEQUIRITY",
+    "common_name": "Crab's Eye Vine (JEQUIRITY - ARBRUS PRECATORIUS)",
+    "source_url": "http://homeoint.org/books/boericmm/a/abr.htm",
+    "letter": "A",
+    "general": "Epithelioma, lupus, ulcers, granular lids.",
+    "sections": {
+      "Eyes": "Purulent conjunctivitis; inflammation spreads to face and neck. Granular ophthalmia. Keratitis.",
+      "Relationship": "Compare: Jequiritol (in cases of trachoma and pannus to engraft a new purulent inflammation. The proteid poisons contained in Jequirity seeds are almost identical in their physiological and toxic properties with the similar principles found in snake venom).",
+      "Dose": "Mother tincture diluted locally and 3x internally. Home"
+    },
+    "relationships": "Compare: Jequiritol (in cases of trachoma and pannus to engraft a new purulent inflammation. The proteid poisons contained in Jequirity seeds are almost identical in their physiological and toxic properties with the similar principles found in snake venom).",
+    "potencies": [
+      "3x"
+    ],
+    "keywords": [
+      "granular",
+      "purulent",
+      "inflammation",
+      "epithelioma",
+      "lupus",
+      "ulcers",
+      "lids",
+      "conjunctivitis",
+      "spreads",
+      "face"
+    ]
+  }
+]
