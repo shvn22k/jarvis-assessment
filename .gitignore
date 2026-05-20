@@ -1,0 +1,33 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+
+# Environment
+.env
+.env.*
+
+# IDE
+.vscode/
+.cursor/
+*.suo
+*.user
+
+# Logs & temp files
+*.log
+*.tmp
+*.bak
+
+# Scraper output (large files — submit separately)
+boericke_remedies.json
+failed_urls.txt
+
+# OS
+.DS_Store
+Thumbs.db
