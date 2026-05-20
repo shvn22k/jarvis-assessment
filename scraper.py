@@ -516,3 +516,202 @@ def upload_to_mongo(remedies: List[RemedyRecord], mongo_uri: str) -> None:
     finally:
         if client is not None:
             client.close()
+
+
+def load_existing_output(path: str) -> Tuple[List[RemedyRecord], Set[str]]:
+    """
+    Load previously scraped remedies from disk to enable resumability.
+
+    If the output file exists and is valid, returns all existing records
+    and a set of their source URLs. The scraper uses the URL set to skip
+    remedies that have already been scraped in a previous run.
+
+    Args:
+        path: Path to the output JSON file (e.g. "boericke_remedies.json").
+
+    Returns:
+        Tuple of (list of existing RemedyRecord dicts, set of source URLs).
+        Returns ([], set()) if the file does not exist, is empty, or is
+        invalid JSON — in all cases the scraper starts fresh.
+    """
+    if not os.path.exists(path):
+        return [], set()
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            content = f.read().strip()
+        if not content or content == "[]":
+            return [], set()
+        records: List[RemedyRecord] = json.loads(content)
+        if not isinstance(records, list):
+            logger.warning(f"Output file {path} does not contain a JSON array. Starting fresh.")
+            return [], set()
+        seen_urls: Set[str] = {
+            r["source_url"] for r in records if "source_url" in r
+        }
+        logger.info(f"Loaded {len(records)} existing records from {path}.")
+        return records, seen_urls
+    except json.JSONDecodeError as e:
+        logger.warning(f"Could not parse {path}: {e}. Starting fresh.")
+        return [], set()
+    except Exception as e:
+        logger.warning(f"Could not load {path}: {e}. Starting fresh.")
+        return [], set()
+
+
+def save_output(remedies: List[RemedyRecord], path: str) -> None:
+    """
+    Atomically write the full list of remedies to a JSON file.
+
+    Uses a write-to-temp-then-replace strategy to ensure the output file
+    is never left in a corrupt or partial state, even if the process is
+    killed mid-write.
+
+    Args:
+        remedies: Full list of RemedyRecord dicts scraped so far.
+        path:     Destination file path e.g. "boericke_remedies.json".
+    """
+    tmp_path = path + ".tmp"
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(remedies, f, indent=2, ensure_ascii=False)
+        os.replace(tmp_path, path)
+    except Exception as e:
+        logger.error(f"Failed to save output to {path}: {e}")
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
+
+
+def main() -> None:
+    """
+    Entry point for the Boericke Materia Medica scraper.
+
+    Parses CLI arguments, loads any existing output for resumability,
+    crawls all specified letters, scrapes each remedy page, enriches
+    records with potencies and keywords, and saves output incrementally.
+    Optionally uploads the final dataset to MongoDB.
+    """
+    parser = argparse.ArgumentParser(
+        description="Scrape Boericke's Homoeopathic Materia Medica into JSON.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python scraper.py                          # scrape all A-Z
+  python scraper.py --letters A,B,C         # scrape subset
+  python scraper.py --upload                # scrape + upload to MongoDB
+  python scraper.py --letters A --output test.json  # custom output path
+    """,
+    )
+    parser.add_argument(
+        "--letters",
+        type=str,
+        default=",".join(LETTERS),
+        help="Comma-separated letters to scrape (default: A-Z)",
+    )
+    parser.add_argument(
+        "--output",
+        type=str,
+        default=OUTPUT_FILE,
+        help=f"Output JSON file path (default: {OUTPUT_FILE})",
+    )
+    parser.add_argument(
+        "--upload",
+        action="store_true",
+        help="Upload scraped data to MongoDB after scraping",
+    )
+    parser.add_argument(
+        "--mongo-uri",
+        type=str,
+        default="mongodb://localhost:27017/",
+        help="MongoDB connection URI (default: mongodb://localhost:27017/)",
+    )
+    parser.add_argument(
+        "--delay-min",
+        type=float,
+        default=DELAY_MIN,
+        help=f"Minimum delay between requests in seconds (default: {DELAY_MIN})",
+    )
+    parser.add_argument(
+        "--delay-max",
+        type=float,
+        default=DELAY_MAX,
+        help=f"Maximum delay between requests in seconds (default: {DELAY_MAX})",
+    )
+    args = parser.parse_args()
+
+    letters_to_scrape = [l.strip().upper() for l in args.letters.split(",")]
+    invalid = [l for l in letters_to_scrape if l not in LETTERS]
+    if invalid:
+        parser.error(f"Invalid letters: {invalid}. Must be A-Z.")
+
+    logger.info("=" * 60)
+    logger.info("Boericke Materia Medica Scraper — jarvis.care")
+    logger.info(f"Letters : {', '.join(letters_to_scrape)}")
+    logger.info(f"Output  : {args.output}")
+    logger.info(f"Upload  : {args.upload}")
+    logger.info("=" * 60)
+
+    remedies, seen_urls = load_existing_output(args.output)
+    logger.info(f"Resuming with {len(seen_urls)} already-scraped remedies.")
+
+    for letter in letters_to_scrape:
+        html = fetch_letter_index(letter)
+        if html is None:
+            logger.warning(f"[{letter}] Could not fetch index page. Skipping letter.")
+            continue
+
+        links = parse_remedy_links(html, letter)
+        if not links:
+            logger.warning(f"[{letter}] No remedy links found. Skipping letter.")
+            continue
+
+        total = len(links)
+        logger.info(f"[{letter}] Found {total} remedies to scrape.")
+
+        for i, (abbrev, url) in enumerate(links, 1):
+            if url in seen_urls:
+                logger.info(f"[{letter}] Skipping {abbrev} (already scraped).")
+                continue
+
+            html = fetch_page(url)
+            if html is None:
+                logger.warning(f"[{letter}] Failed to fetch {abbrev} — logging and continuing.")
+                log_failed_url(url)
+                continue
+
+            record = parse_remedy_page(html, url, abbrev, letter)
+            if record is None:
+                logger.warning(f"[{letter}] Failed to parse {abbrev} — logging and continuing.")
+                log_failed_url(url)
+                continue
+
+            record["potencies"] = extract_potencies(
+                record["sections"].get("Dose", "")
+            )
+            record["keywords"] = extract_keywords(record)
+
+            remedies.append(record)
+            seen_urls.add(url)
+            save_output(remedies, args.output)
+
+            print(f"[{letter}] Scraped {i}/{total} - {record['full_name']}")
+
+            time.sleep(random.uniform(args.delay_min, args.delay_max))
+
+        logger.info(f"[{letter}] Finished. Total remedies so far: {len(remedies)}")
+
+    logger.info("=" * 60)
+    logger.info(f"Scraping complete. Total remedies scraped: {len(remedies)}")
+    logger.info(f"Output saved to: {args.output}")
+
+    if args.upload:
+        logger.info("Uploading to MongoDB...")
+        upload_to_mongo(remedies, args.mongo_uri)
+
+    logger.info("Done.")
+
+
+if __name__ == "__main__":
+    main()
