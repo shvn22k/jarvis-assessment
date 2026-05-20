@@ -31,3 +31,8 @@ failed_urls.txt
 # OS
 .DS_Store
 Thumbs.db
+
+# Internal prompts
+prompts/
+
+prompts/
