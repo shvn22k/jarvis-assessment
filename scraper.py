@@ -20,7 +20,6 @@ from collections import Counter
 from typing import Dict, List, Optional, Set, Tuple, TypedDict
 from urllib.parse import urljoin
 
-import pymongo
 import requests
 from bs4 import BeautifulSoup
 
@@ -481,46 +480,6 @@ def extract_keywords(record: RemedyRecord, top_n: int = 10) -> List[str]:
         return []
 
 
-def upload_to_mongo(remedies: List[RemedyRecord], mongo_uri: str) -> None:
-    """
-    Upsert all remedy records into a MongoDB collection.
-
-    Each remedy is upserted (inserted or updated) keyed on its source_url,
-    so this function is safe to call multiple times — re-uploading will
-    update existing records rather than creating duplicates.
-
-    Targets database: "jarvis_care", collection: "remedies".
-
-    Args:
-        remedies:  Full list of RemedyRecord dicts to upload.
-        mongo_uri: MongoDB connection string e.g. "mongodb://localhost:27017/".
-    """
-    client = None
-    try:
-        client = pymongo.MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
-        client.server_info()
-        collection = client["jarvis_care"]["remedies"]
-        total = len(remedies)
-        for i, remedy in enumerate(remedies, 1):
-            collection.update_one(
-                {"source_url": remedy["source_url"]},
-                {"$set": remedy},
-                upsert=True,
-            )
-            if i % 50 == 0 or i == total:
-                logger.info(f"Uploaded {i}/{total} remedies to MongoDB")
-        logger.info("MongoDB upload complete.")
-    except pymongo.errors.ServerSelectionTimeoutError:
-        logger.error(
-            f"Could not connect to MongoDB at {mongo_uri}. "
-            "Is the server running? Skipping upload."
-        )
-    except Exception as e:
-        logger.error(f"MongoDB upload failed: {e}")
-    finally:
-        if client is not None:
-            client.close()
-
 
 def load_existing_output(path: str) -> Tuple[List[RemedyRecord], Set[str]]:
     """
@@ -604,7 +563,6 @@ def main() -> None:
 Examples:
   python scraper.py                          # scrape all A-Z
   python scraper.py --letters A,B,C         # scrape subset
-  python scraper.py --upload                # scrape + upload to MongoDB
   python scraper.py --letters A --output test.json  # custom output path
     """,
     )
@@ -619,17 +577,6 @@ Examples:
         type=str,
         default=OUTPUT_FILE,
         help=f"Output JSON file path (default: {OUTPUT_FILE})",
-    )
-    parser.add_argument(
-        "--upload",
-        action="store_true",
-        help="Upload scraped data to MongoDB after scraping",
-    )
-    parser.add_argument(
-        "--mongo-uri",
-        type=str,
-        default="mongodb://localhost:27017/",
-        help="MongoDB connection URI (default: mongodb://localhost:27017/)",
     )
     parser.add_argument(
         "--delay-min",
@@ -654,7 +601,6 @@ Examples:
     logger.info("Boericke Materia Medica Scraper — jarvis.care")
     logger.info(f"Letters : {', '.join(letters_to_scrape)}")
     logger.info(f"Output  : {args.output}")
-    logger.info(f"Upload  : {args.upload}")
     logger.info("=" * 60)
 
     remedies, seen_urls = load_existing_output(args.output)
@@ -709,11 +655,6 @@ Examples:
     logger.info("=" * 60)
     logger.info(f"Scraping complete. Total remedies scraped: {len(remedies)}")
     logger.info(f"Output saved to: {args.output}")
-
-    if args.upload:
-        logger.info("Uploading to MongoDB...")
-        upload_to_mongo(remedies, args.mongo_uri)
-
     logger.info("Done.")
 
 
