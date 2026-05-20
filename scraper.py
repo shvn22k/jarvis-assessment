@@ -212,3 +212,183 @@ def parse_remedy_links(html: str, letter: str) -> List[Tuple[str, str]]:
     except Exception as e:
         logger.error(f"Failed to parse index for letter {letter}: {e}")
         return []
+
+
+def parse_remedy_page(
+    html: str,
+    url: str,
+    abbreviation: str,
+    letter: str,
+) -> Optional[RemedyRecord]:
+    """
+    Parse a single remedy HTML page into a structured RemedyRecord.
+
+    Handles all known structural variations in the Boericke Materia Medica
+    pages including: remedies with and without common names, remedies with
+    and without Relationship sections, and sections that run together without
+    newline separators.
+
+    The actual pages render content as flat <body> children after lxml parses
+    the deeply-nested, malformed HTML from the site. Section headings appear
+    in either <font> tags or <p><b> tags depending on the page.
+
+    Args:
+        html:         Raw HTML of the remedy page.
+        url:          Source URL of this page (stored as-is in the record).
+        abbreviation: Uppercase abbreviation from the index page e.g. "ABIES-C".
+        letter:       Uppercase single letter e.g. "A".
+
+    Returns:
+        Fully populated RemedyRecord on success.
+        None if a critical parsing failure occurs (logged before returning).
+    """
+    try:
+        from bs4 import NavigableString as NS
+
+        def clean_text(raw: str) -> str:
+            """Strip HTML artifacts and normalise whitespace."""
+            return re.sub(r'\s+', ' ', raw).strip()
+
+        soup = BeautifulSoup(html, "lxml")
+        body = soup.find("body")
+        if not body:
+            logger.warning(f"No <body> found for {url}")
+            return None
+
+        HEADING_RE = re.compile(r'^([A-Z][a-zA-Z\s\-\/]+)\.--\s*(.*)', re.DOTALL)
+        # Matches the site header/footer paragraphs that should be skipped
+        SKIP_RE = re.compile(r'BOERICKE|M\xe9di-T|Copyright|Presented by', re.IGNORECASE)
+
+        full_name: Optional[str] = None
+        common_name: Optional[str] = None
+        general_parts: List[str] = []
+        sections: Dict[str, str] = {}
+        current_section: Optional[str] = None
+        current_parts: List[str] = []
+        in_general = True
+        found_name = False
+
+        def add_text(text: str) -> None:
+            if not text:
+                return
+            if in_general:
+                general_parts.append(text)
+            elif current_section is not None:
+                current_parts.append(text)
+
+        for child in body.children:
+            if isinstance(child, NS):
+                if not found_name:
+                    continue
+                add_text(child.strip())
+
+            elif hasattr(child, 'name'):
+                tag_text = child.get_text(strip=True)
+
+                if child.name == 'p':
+                    if not tag_text or not tag_text.replace('\xa0', '').strip():
+                        continue
+                    if SKIP_RE.search(tag_text):
+                        continue
+
+                    if not found_name:
+                        # First meaningful <p> after header is the remedy name
+                        b_tag = child.find('b')
+                        if b_tag:
+                            font_tag = b_tag.find('font')
+                            if font_tag:
+                                full_name = clean_text(font_tag.get_text())
+                                cn_parts = []
+                                for sib in font_tag.next_siblings:
+                                    if isinstance(sib, NS):
+                                        s = sib.strip()
+                                        if s:
+                                            cn_parts.append(s)
+                                common_name = clean_text(' '.join(cn_parts)) or None
+                            else:
+                                full_name = clean_text(b_tag.get_text())
+                            found_name = True
+                        continue
+
+                    # After finding name: check if <p> is a section heading.
+                    # Headings appear either as plain text ("Mind.--Great fear...")
+                    # or wrapped in a <b> tag ("<b>Section.--</b>text...").
+                    heading_match = HEADING_RE.match(tag_text)
+                    b_tag = child.find('b')
+                    b_heading_match = HEADING_RE.match(b_tag.get_text(strip=True)) if b_tag else None
+
+                    if heading_match or b_heading_match:
+                        m = heading_match or b_heading_match
+                        if not in_general and current_section is not None:
+                            sections[current_section] = clean_text(' '.join(current_parts))
+                        in_general = False
+                        current_section = m.group(1).strip()
+                        if b_heading_match and b_tag:
+                            # Collect text after the <b> inside this <p>
+                            rest: List[str] = []
+                            for sib in b_tag.next_siblings:
+                                s = sib.strip() if isinstance(sib, NS) else (
+                                    sib.get_text(strip=True) if hasattr(sib, 'get_text') else '')
+                                if s:
+                                    rest.append(s)
+                            current_parts = [clean_text(' '.join(rest))] if rest else []
+                        else:
+                            # Plain-text heading: remainder is everything after "Heading.-- "
+                            remainder = m.group(2).strip()
+                            current_parts = [remainder] if remainder else []
+                        continue
+
+                    # Plain <p> — treat as content
+                    add_text(tag_text)
+
+                elif child.name == 'font':
+                    if not found_name:
+                        continue
+                    m = HEADING_RE.match(tag_text)
+                    if m:
+                        if not in_general and current_section is not None:
+                            sections[current_section] = clean_text(' '.join(current_parts))
+                        in_general = False
+                        current_section = m.group(1).strip()
+                        remainder = m.group(2).strip()
+                        current_parts = [remainder] if remainder else []
+                    else:
+                        add_text(tag_text)
+
+                else:
+                    if found_name:
+                        add_text(tag_text)
+
+        # Flush the last section
+        if current_section is not None:
+            sections[current_section] = clean_text(' '.join(current_parts))
+
+        if not full_name:
+            logger.warning(f"Could not find full_name for {url}")
+            return None
+
+        general = clean_text(' '.join(general_parts))
+
+        # --- Extract relationships ---
+        relationships: Optional[str] = None
+        for key in ("Relationship", "Relationships"):
+            if key in sections:
+                relationships = sections[key]
+                break
+
+        return RemedyRecord(
+            abbreviation=abbreviation,
+            full_name=full_name,
+            common_name=common_name,
+            source_url=url,
+            letter=letter,
+            general=general,
+            sections=sections,
+            relationships=relationships,
+            potencies=[],
+            keywords=[],
+        )
+
+    except Exception as e:
+        logger.error(f"Critical parse failure for {url}: {e}")
+        return None
