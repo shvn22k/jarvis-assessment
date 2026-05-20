@@ -17,13 +17,12 @@ import re
 import sys
 import time
 from collections import Counter
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple, TypedDict
 from urllib.parse import urljoin
 
 import pymongo
 import requests
 from bs4 import BeautifulSoup
-from typing import TypedDict
 
 logging.basicConfig(
     level=logging.INFO,
