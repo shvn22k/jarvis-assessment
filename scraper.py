@@ -214,6 +214,11 @@ def parse_remedy_links(html: str, letter: str) -> List[Tuple[str, str]]:
         return []
 
 
+def clean_text(raw: str) -> str:
+    """Strip HTML artifacts and normalise whitespace."""
+    return re.sub(r'\s+', ' ', raw).strip()
+
+
 def parse_remedy_page(
     html: str,
     url: str,
@@ -244,10 +249,6 @@ def parse_remedy_page(
     """
     try:
         from bs4 import NavigableString as NS
-
-        def clean_text(raw: str) -> str:
-            """Strip HTML artifacts and normalise whitespace."""
-            return re.sub(r'\s+', ' ', raw).strip()
 
         soup = BeautifulSoup(html, "lxml")
         body = soup.find("body")
