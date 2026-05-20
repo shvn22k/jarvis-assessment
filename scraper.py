@@ -393,3 +393,126 @@ def parse_remedy_page(
     except Exception as e:
         logger.error(f"Critical parse failure for {url}: {e}")
         return None
+
+
+def extract_potencies(dose_text: str) -> List[str]:
+    """
+    Extract and normalise potency tokens from a remedy's Dose section text.
+
+    Handles both numeric potencies (e.g. "30c", "6x") and named ordinal
+    potencies (e.g. "third", "thirtieth"). Deduplicates while preserving
+    the order of first appearance.
+
+    Args:
+        dose_text: Raw text of the Dose section. Empty string if no Dose
+                   section exists for this remedy.
+
+    Returns:
+        Deduplicated list of normalised potency strings e.g. ["1c", "3c"].
+        Empty list if no potencies found or dose_text is empty.
+    """
+    try:
+        if not dose_text:
+            return []
+
+        results: List[str] = []
+        lowered = dose_text.lower()
+
+        # Step 1 — named potency scan (fixed order)
+        for key in ("first", "second", "third", "sixth", "thirtieth",
+                    "two-hundredth", "two hundredth"):
+            if key in lowered:
+                results.append(NAMED_POTENCIES[key])
+
+        # Step 2 — numeric potency scan
+        for match in re.findall(r'\b(\d+\s*[xXcC])\b', dose_text):
+            results.append(re.sub(r'\s+', '', match).lower())
+
+        # Step 3 — range expansion (e.g. "3-30c")
+        for m in re.finditer(r'\b(\d+)-(\d+)\s*([xXcC])\b', dose_text):
+            suffix = m.group(3).lower()
+            results.append(f"{m.group(1)}{suffix}")
+            results.append(f"{m.group(2)}{suffix}")
+
+        # Step 4 — deduplicate, preserve order
+        return list(dict.fromkeys(results))
+
+    except Exception as e:
+        logger.warning(f"extract_potencies failed: {e}")
+        return []
+
+
+def extract_keywords(record: RemedyRecord, top_n: int = 10) -> List[str]:
+    """
+    Extract the top N symptom keywords from a remedy's combined text content.
+
+    Combines the general description and all section values, tokenises into
+    words of 4+ characters, removes stopwords, and returns the most frequent
+    terms. This gives a fast, lightweight keyword signal for each remedy
+    without requiring external NLP libraries.
+
+    Args:
+        record: The RemedyRecord to analyse. Must have general and sections
+                populated before this function is called.
+        top_n:  Number of top keywords to return. Defaults to 10.
+
+    Returns:
+        List of up to top_n keyword strings ordered by frequency descending.
+        Empty list if the combined text is too short to extract keywords.
+    """
+    try:
+        parts = [record["general"]] + list(record["sections"].values())
+        corpus = " ".join(parts).lower()
+
+        if len(corpus) < 50:
+            return []
+
+        tokens = re.findall(r'\b[a-z]{4,}\b', corpus)
+        filtered = [t for t in tokens if t not in STOPWORDS]
+        counter = Counter(filtered)
+        return [word for word, _ in counter.most_common(top_n)]
+
+    except Exception as e:
+        logger.warning(f"extract_keywords failed: {e}")
+        return []
+
+
+def upload_to_mongo(remedies: List[RemedyRecord], mongo_uri: str) -> None:
+    """
+    Upsert all remedy records into a MongoDB collection.
+
+    Each remedy is upserted (inserted or updated) keyed on its source_url,
+    so this function is safe to call multiple times — re-uploading will
+    update existing records rather than creating duplicates.
+
+    Targets database: "jarvis_care", collection: "remedies".
+
+    Args:
+        remedies:  Full list of RemedyRecord dicts to upload.
+        mongo_uri: MongoDB connection string e.g. "mongodb://localhost:27017/".
+    """
+    client = None
+    try:
+        client = pymongo.MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
+        client.server_info()
+        collection = client["jarvis_care"]["remedies"]
+        total = len(remedies)
+        for i, remedy in enumerate(remedies, 1):
+            collection.update_one(
+                {"source_url": remedy["source_url"]},
+                {"$set": remedy},
+                upsert=True,
+            )
+            if i % 50 == 0 or i == total:
+                logger.info(f"Uploaded {i}/{total} remedies to MongoDB")
+        logger.info("MongoDB upload complete.")
+    except pymongo.errors.ServerSelectionTimeoutError:
+        logger.error(
+            f"Could not connect to MongoDB at {mongo_uri}. "
+            "Is the server running? Skipping upload."
+        )
+    except Exception as e:
+        logger.error(f"MongoDB upload failed: {e}")
+    finally:
+        if client is not None:
+            client.close()
